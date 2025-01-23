@@ -25,7 +25,7 @@ class GlamRandomImage:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "string-tools"
+    CATEGORY = "comfyui-glam-nodes"
 
     def get_input_types(self):
         if self.input_types is None:
