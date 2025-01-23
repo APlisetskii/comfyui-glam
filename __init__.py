@@ -19,6 +19,7 @@ class GlamRandomImage:
                     },
                 ),
                 "image_1": ("IMAGE",),
+                "image_2": ("IMAGE",),
             }
         }
 
@@ -41,16 +42,16 @@ class GlamRandomImage:
                 max_connected = i
 
         # Add next slot if needed
-        if max_connected < 11 and f"image_{max_connected + 1}" not in input_types["required"]:
-            input_types["required"][f"image_{max_connected + 1}"] = ("IMAGE",)
+        if max_connected < 11:
+            next_slot = f"image_{max_connected + 1}"
+            if next_slot not in input_types["required"]:
+                input_types["required"][next_slot] = ("IMAGE",)
 
     def process(self, *args, **kwargs):
         seed = 0
         if "seed" in kwargs:
             seed = kwargs["seed"]
             del kwargs["seed"]
-
-        self.update_input_types(**kwargs)
 
         # Filter out None values and collect valid images
         images = []
@@ -64,6 +65,10 @@ class GlamRandomImage:
 
         random.seed(seed)
         choice = random.choice(images)
+        
+        # Update slots for next execution
+        self.update_input_types(**kwargs)
+        
         return (choice,)
 
 
