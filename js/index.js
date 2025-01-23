@@ -86,8 +86,8 @@ function createCallback(nodename, basename, inputType, withWeights) {
             };
             const onConnectionsChange = this.onConnectionsChange;
             this.onConnectionsChange = function (type, //(0: ?, 1:input, 2: output )
-            slotIndex, isConnected, link, //LLink,
-            ioSlot) {
+                slotIndex, isConnected, link, //LLink,
+                ioSlot) {
                 if (onConnectionsChange) {
                     onConnectionsChange.apply(this, arguments);
                 }
@@ -174,10 +174,10 @@ app.registerExtension({
     beforeRegisterNodeDef: createCallback("StringToolsConcat", "text", "STRING"),
 });
 app.registerExtension({
-    name: "Taremin.StringToolsRandomChoice",
-    beforeRegisterNodeDef: createCallback("StringToolsRandomChoice", "text", "STRING"),
+    name: "Taremin.GlamRandomImage",
+    beforeRegisterNodeDef: createCallback("GlamRandomImage", "text", "STRING"),
 });
 app.registerExtension({
     name: "Taremin.StringToolsBalancedChoice",
-    beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["StringToolsRandomChoice", "StringToolsBalancedChoice"]),
+    beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["GlamRandomImage", "StringToolsBalancedChoice"]),
 });

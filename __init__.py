@@ -1,115 +1,7 @@
 import random
 
 
-class StringToolsOptionalDict(dict):
-    def __contains__(self, key: object) -> bool:
-        return True
-
-
-def sort_kwargs_value(basename, kwargs, separator="_"):
-    sorted_args = {}
-    basename_dict = {}
-
-    for key, value in kwargs.items():
-        if separator.join(key.split(separator)[:-1]) != basename:
-            sorted_args[key] = value
-        else:
-            basename_dict[key] = value
-
-    sorted_basename_dict = sorted(
-        basename_dict.items(), key=lambda kv: int(kv[0].split(separator)[-1])
-    )
-
-    return list(map(lambda kv: kv[1], sorted_basename_dict))
-
-
-class StringToolsString:
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "text": (
-                    "STRING",
-                    {
-                        "dynamicPrompts": False,
-                    },
-                ),
-            },
-        }
-
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "process"
-    CATEGORY = "string-tools"
-
-    def process(self, text):
-        return (text,)
-
-
-class StringToolsText:
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "text": (
-                    "STRING",
-                    {
-                        "multiline": True,
-                        "dynamicPrompts": False,
-                    },
-                ),
-            },
-        }
-
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "process"
-    CATEGORY = "string-tools"
-
-    def process(self, text):
-        return (text,)
-
-
-class StringToolsConcat:
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {},
-            "optional": {
-                "separator": (
-                    "STRING",
-                    {"forceInput": True},
-                ),
-            },
-            "hidden": {
-                "text": (
-                    "STRING",
-                    {"forceInput": True},
-                ),
-            },
-        }
-
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "process"
-    CATEGORY = "string-tools"
-
-    def process(self, *args, **kwargs):
-        if "separator" in kwargs:
-            separator = kwargs["separator"]
-            del kwargs["separator"]
-        else:
-            separator = ""
-        return (separator.join(sort_kwargs_value("text", kwargs)),)
-
-
-class StringToolsRandomChoice:
+class GlamRandomImage:
     def __init__(self):
         pass
 
@@ -127,15 +19,21 @@ class StringToolsRandomChoice:
                     },
                 ),
             },
-            "hidden": {
-                "text": (
-                    "STRING",
-                    {"forceInput": True},
-                ),
-            },
+            "optional": {
+                "image_1": ("IMAGE",),
+                "image_2": ("IMAGE",),
+                "image_3": ("IMAGE",),
+                "image_4": ("IMAGE",),
+                "image_5": ("IMAGE",),
+                "image_6": ("IMAGE",),
+                "image_7": ("IMAGE",),
+                "image_8": ("IMAGE",),
+                "image_9": ("IMAGE",),
+                "image_10": ("IMAGE",),
+            }
         }
 
-    RETURN_TYPES = ("STRING",)
+    RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
     CATEGORY = "string-tools"
 
@@ -145,37 +43,22 @@ class StringToolsRandomChoice:
             seed = kwargs["seed"]
             del kwargs["seed"]
 
-        values = sort_kwargs_value("text", kwargs)
+        # Filter out None values and collect valid images
+        images = []
+        for i in range(1, 11):
+            key = f"image_{i}"
+            if key in kwargs and kwargs[key] is not None:
+                images.append(kwargs[key])
+
+        if not images:
+            raise ValueError("At least one image input is required")
+
         random.seed(seed)
-        choice = random.choice(values)
-        return (choice,)
-
-
-class StringToolsBalancedChoice(StringToolsRandomChoice):
-    @classmethod
-    def INPUT_TYPES(s):
-        input_types = super().INPUT_TYPES()
-        input_types["optional"] = StringToolsOptionalDict()
-        return input_types
-
-    def process(self, *args, **kwargs):
-        seed = 0
-        if "seed" in kwargs:
-            seed = kwargs["seed"]
-            del kwargs["seed"]
-
-        values = sort_kwargs_value("text", kwargs)
-        weights = sort_kwargs_value("weight", kwargs)
-        random.seed(seed)
-        choice = random.choices(values, weights=weights)[0]
+        choice = random.choice(images)
         return (choice,)
 
 
 NODE_CLASS_MAPPINGS = {
-    "StringToolsString": StringToolsString,
-    "StringToolsText": StringToolsText,
-    "StringToolsConcat": StringToolsConcat,
-    "StringToolsRandomChoice": StringToolsRandomChoice,
-    "StringToolsBalancedChoice": StringToolsBalancedChoice,
+    "GlamRandomImage": GlamRandomImage,
 }
 WEB_DIRECTORY = "./js"
