@@ -5,4 +5,4 @@ A node that randomly selects one image from multiple input images. Features:
 - Dynamically adds new input slots when connecting images
 - Uses seed for reproducible random selection
 
-![image](https://github.com/user-attachments/assets/64ed2b53-8c74-455b-b158-51d7d9bf8050)
+<img width="523" alt="Screenshot_1" src="https://github.com/user-attachments/assets/15c94c29-b8e5-4712-9efe-eeebf2630f31" />
