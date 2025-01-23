@@ -19,13 +19,12 @@ class GlamRandomImage:
                     },
                 ),
                 "image_1": ("IMAGE",),
-                "image_2": ("IMAGE",),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "string-tools"
+    CATEGORY = "image-tools"
 
     def get_input_types(self):
         if self.input_types is None:
