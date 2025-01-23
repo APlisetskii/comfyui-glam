@@ -30,6 +30,7 @@ class GlamRandomImage:
                 "image_8": ("IMAGE",),
                 "image_9": ("IMAGE",),
                 "image_10": ("IMAGE",),
+                "image_11": ("IMAGE",),
             }
         }
 
