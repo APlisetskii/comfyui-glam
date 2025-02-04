@@ -181,3 +181,7 @@ app.registerExtension({
     name: "Taremin.StringToolsBalancedChoice",
     beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["GlamRandomImage", "StringToolsBalancedChoice"]),
 });
+app.registerExtension({
+    name: "Taremin.GlamSmoothZoom",
+    beforeRegisterNodeDef: createCallback("GlamSmoothZoom", "image", "IMAGE"),
+});

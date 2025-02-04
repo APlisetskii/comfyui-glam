@@ -1,4 +1,5 @@
 import random
+from PIL import Image
 
 
 class GlamRandomImage:
@@ -71,7 +72,54 @@ class GlamRandomImage:
         return (choice,)
 
 
+# === Новая нода: GlamSmoothZoom ===
+class GlamSmoothZoom:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            }
+        }
+
+    # Здесь возвращается батч (список) изображений (по соглашению возвращаемое значение оборачивается в кортеж)
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "process"
+    CATEGORY = "comfyui-glam-nodes"
+
+    def process(self, image):
+        # Предполагаем, что image – это экземпляр PIL.Image
+        width, height = image.size
+        fps = 30
+        duration = 5  # в секундах
+        total_frames = fps * duration  # 150 кадров
+        final_scale = 1.15  # итоговый масштаб (15% зум)
+        frames = []
+
+        for frame in range(total_frames):
+            # Линейная интерполяция от 1.0 до 1.15
+            t = frame / (total_frames - 1)
+            scale = 1.0 + t * (final_scale - 1.0)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            # Масштабируем изображение
+            scaled = image.resize((new_width, new_height), resample=Image.LANCZOS)
+            # Центрируем и обрезаем до исходного размера
+            left = (new_width - width) // 2
+            top = (new_height - height) // 2
+            right = left + width
+            bottom = top + height
+            frame_img = scaled.crop((left, top, right, bottom))
+            frames.append(frame_img)
+        return (frames,)
+
+
+# === Обновление маппинга нод ===
 NODE_CLASS_MAPPINGS = {
     "GlamRandomImage": GlamRandomImage,
+    "GlamSmoothZoom": GlamSmoothZoom,
 }
 WEB_DIRECTORY = "./js"

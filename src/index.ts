@@ -4,23 +4,23 @@ import { setWidgetConfig } from "/extensions/core/widgetInputs.js"
 
 declare const LiteGraph: any
 
-function createCallback(nodename: string, basename: string, inputType: string, withWeights?:string[]) {
-    return async function(nodeType:any, nodeData:any, app:any) {
+function createCallback(nodename: string, basename: string, inputType: string, withWeights?: string[]) {
+    return async function (nodeType: any, nodeData: any, app: any) {
         if (nodeData.name !== nodename) {
             return
         }
 
-        const getInputBasename = function(input: any) {
+        const getInputBasename = function (input: any) {
             return input.name.split('_')[0]
         }
 
-        const getInputExtraname = function(input: any) {
+        const getInputExtraname = function (input: any) {
             return input.name.split('_', 2)[1]
         }
 
-        const updateInputs = function(this: any) {
+        const updateInputs = function (this: any) {
             // remove empty inputs
-            for (let index = this.inputs.length; index--; ) {
+            for (let index = this.inputs.length; index--;) {
                 const input = this.inputs[index]
                 if (getInputBasename(input) === basename && input.link === null && this.removeCancel !== index) {
                     this.removeInput(index)
@@ -49,7 +49,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                 const input = this.inputs[i]
 
                 if (input.widget) {
-                    setWidgetConfig(input, [input.type, {forceInput: true}]);
+                    setWidgetConfig(input, [input.type, { forceInput: true }]);
                     continue
                 }
 
@@ -57,22 +57,22 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                 input.widget = {
                     name: input.name,
                 }
-                setWidgetConfig(input, [inputType, {forceInput: true}])
+                setWidgetConfig(input, [inputType, { forceInput: true }])
             }
         }
 
         const onNodeCreatedOriginal = nodeType.prototype.onNodeCreated
-        nodeType.prototype.onNodeCreated = function() {
+        nodeType.prototype.onNodeCreated = function () {
             if (onNodeCreatedOriginal) {
                 const tmp = app.configuringGraph
                 app.configuringGraph = false
                 onNodeCreatedOriginal.call(this)
-                app.configuringGraph = tmp 
+                app.configuringGraph = tmp
             }
             this.removeCancel = -1
 
             const onConnectInputOriginal = this.onConnectInput
-            this.onConnectInput = function(targetSlot: number, type: string, output:any, originNode:any, originSlot:number) {
+            this.onConnectInput = function (targetSlot: number, type: string, output: any, originNode: any, originSlot: number) {
                 let retVal = onConnectInputOriginal ? onConnectInputOriginal.apply(this, arguments) : void 0
                 if (originNode.type === "PrimitiveNode" && getInputBasename(this.inputs[targetSlot]) === basename) {
                     return false
@@ -83,12 +83,12 @@ function createCallback(nodename: string, basename: string, inputType: string, w
             }
 
             const onInputDblClickOriginal = this.onInputDblClick
-            this.onInputDblClick = function(slot: number) {
+            this.onInputDblClick = function (slot: number) {
                 if (onInputDblClickOriginal) {
                     const originalCreateNode = LiteGraph.createNode
 
                     if (getInputBasename(this.inputs[slot]) === basename) {
-                        LiteGraph.createNode = function(nodeType: string) {
+                        LiteGraph.createNode = function (nodeType: string) {
                             if (nodeType !== "PrimitiveNode") {
                                 return originalCreateNode.apply(this, arguments)
                             }
@@ -101,7 +101,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
             }
 
             const onConnectionsChange = this.onConnectionsChange
-            this.onConnectionsChange = function(
+            this.onConnectionsChange = function (
                 type: number, //(0: ?, 1:input, 2: output )
                 slotIndex: number,
                 isConnected: boolean,
@@ -120,7 +120,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                 this.removeCancel = -1
             }
 
-            this.onAdded = function(graph: any) {
+            this.onAdded = function (graph: any) {
                 this.tmpWidgets = this.widgets
                 if (app.configuringGraph) {
                     this.widgets = []
@@ -132,7 +132,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
 
             // デフォルトの onGraphConfigured は動的なソケットを破壊するので使用しない
             const onGraphConfigured = this.onGraphConfigured
-            this.onGraphConfigured = function() {
+            this.onGraphConfigured = function () {
                 if (this.tmpWidgets) {
                     this.widgets = this.tmpWidgets.concat(this.widgets)
                     delete this.tmpWidgets
@@ -144,21 +144,21 @@ function createCallback(nodename: string, basename: string, inputType: string, w
             }
 
             if (withWeights !== void 0) {
-                this.calcNodeInputs = function(prompt: {[key: string]: {class_type: string, inputs: {[key: string]: any}}}, workflow: {nodes: any[]}) {
+                this.calcNodeInputs = function (prompt: { [key: string]: { class_type: string, inputs: { [key: string]: any } } }, workflow: { nodes: any[] }) {
                     const type = prompt[this.id].class_type
 
                     for (const input of Object.keys(prompt[this.id].inputs)) {
-                        if (getInputBasename({name: input}) !== basename) {
+                        if (getInputBasename({ name: input }) !== basename) {
                             continue
                         }
-                        const extraname = getInputExtraname({name: input})
+                        const extraname = getInputExtraname({ name: input })
                         const walkdown = (type: string, id: string, sum: number): number => {
                             for (const input of Object.keys(prompt[id].inputs)) {
                                 const value = prompt[id].inputs[input]
                                 let start = 0
                                 if (
                                     withWeights.includes(prompt[id].class_type) &&
-                                    getInputBasename({name: input}) === basename
+                                    getInputBasename({ name: input }) === basename
                                 ) {
                                     start = 1
                                 }
@@ -190,14 +190,14 @@ function createCallback(nodename: string, basename: string, inputType: string, w
 }
 
 const queuePromptOriginal = api.queuePrompt
-api.queuePrompt = (async function queuePrompt(number: number, {output, workflow}: {output: any, workflow: any}) {
+api.queuePrompt = (async function queuePrompt(number: number, { output, workflow }: { output: any, workflow: any }) {
     for (const id of Object.keys(output)) {
         const node = app.graph.getNodeById(id)
         if (node.calcNodeInputs && typeof node.calcNodeInputs === "function") {
             node.calcNodeInputs(output, workflow)
         }
     }
-    return await queuePromptOriginal(number, {output, workflow})
+    return await queuePromptOriginal(number, { output, workflow })
 }).bind(api)
 
 app.registerExtension({
@@ -213,4 +213,9 @@ app.registerExtension({
 app.registerExtension({
     name: "Taremin.StringToolsBalancedChoice",
     beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["StringToolsRandomChoice", "StringToolsBalancedChoice"]),
+})
+
+app.registerExtension({
+    name: "Taremin.GlamSmoothZoom",
+    beforeRegisterNodeDef: createCallback("GlamSmoothZoom", "image", "IMAGE"),
 })
