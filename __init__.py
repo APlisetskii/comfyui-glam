@@ -19,7 +19,6 @@ class GlamRandomImage:
                     },
                 ),
                 "image_1": ("IMAGE",),
-                "image_2": ("IMAGE",),
             }
         }
 
@@ -36,16 +35,16 @@ class GlamRandomImage:
         input_types = self.get_input_types()
         
         # Find highest connected image number
-        max_connected = 1
+        max_connected = 0
         for i in range(1, 12):
-            if f"image_{i}" in kwargs and kwargs[f"image_{i}"] is not None:
+            key = f"image_{i}"
+            if key in kwargs and kwargs[key] is not None:
                 max_connected = i
 
-        # Add next slot if needed
+        # Always add one empty slot after the last connected image
         if max_connected < 11:
             next_slot = f"image_{max_connected + 1}"
-            if next_slot not in input_types["required"]:
-                input_types["required"][next_slot] = ("IMAGE",)
+            input_types["required"][next_slot] = ("IMAGE",)
 
     def process(self, *args, **kwargs):
         seed = 0
