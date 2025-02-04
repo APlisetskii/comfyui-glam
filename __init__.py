@@ -79,19 +79,22 @@ class GlamSmoothZoom:
 
     @classmethod
     def INPUT_TYPES(s):
+        # Указываем, что на вход требуется изображение
         return {
             "required": {
                 "image": ("IMAGE",),
             }
         }
 
-    # Здесь возвращается батч (список) изображений (по соглашению возвращаемое значение оборачивается в кортеж)
+    # Возвращаем батч (список) изображений
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
     CATEGORY = "comfyui-glam-nodes"
 
     def process(self, image):
-        # Предполагаем, что image – это экземпляр PIL.Image
+        if image is None:
+            raise ValueError("Input image is required.")
+
         width, height = image.size
         fps = 30
         duration = 5  # в секундах
