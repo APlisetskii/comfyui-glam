@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 #
-# === Cтарая нода: GlamRandomImage ===
+# === Старая нода: GlamRandomImage (без изменений) ===
 #
 class GlamRandomImage:
     def __init__(self):
@@ -77,13 +77,19 @@ class GlamSmoothZoom:
 
     @classmethod
     def INPUT_TYPES(cls):
+        """
+        zoom_factor: на сколько увеличить (напр. 0.15 = +15%)
+        duration:    длительность анимации (сек)
+        fps:         кадров в секунду
+        interpolation: ["BICUBIC","BILINEAR"] (исключили LANCZOS)
+        easing:      тип плавности
+        """
         return {
             "required": {
                 "image": ("IMAGE",),
                 "zoom_factor": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "duration": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 60.0, "step": 0.1}),
                 "fps": ("INT", {"default": 30, "min": 1, "max": 240, "step": 1}),
-                # Убираем LANCZOS, оставляем только BICUBIC и BILINEAR
                 "interpolation": (["BICUBIC", "BILINEAR"], {"default": "BICUBIC"}),
                 "easing": (["linear", "ease_in_out", "ease_out"], {"default": "ease_in_out"}),
             }
@@ -101,10 +107,9 @@ class GlamSmoothZoom:
 
     def process(self, image, zoom_factor, duration, fps, interpolation, easing):
         """
-        "Zoom In": Масштаб растет от 1.0 до 1.0+zoom_factor.
-        Используем аффинное преобразование через Image.transform,
-        чтобы минимизировать подёргивания (jitter).
-        Возвращаем PyTorch-тензор (N,H,W,C).
+        "Zoom In" (увеличение) без чёрных рамок:
+        Мы используем обратную матрицу масштабирования, чтобы 
+        PIL не пытался брать пиксели за пределами исходного изображения.
         """
 
         # 1) PyTorch->NumPy
@@ -118,7 +123,6 @@ class GlamSmoothZoom:
         width, height = pil_image.size
         total_frames = int(fps * duration)
 
-        # 2) Подготавливаем easing
         def apply_easing(raw_t):
             if easing == "ease_in_out":
                 return self.ease_in_out(raw_t)
@@ -126,40 +130,56 @@ class GlamSmoothZoom:
                 return self.ease_out(raw_t)
             return raw_t  # linear
 
-        # 3) resample_method (только BICUBIC и BILINEAR)
+        # 2) Выбираем метод (без LANCZOS)
         from PIL import Image as PILImage
         if interpolation == "BICUBIC":
             resample_method = PILImage.Resampling.BICUBIC
-        else:  # BILINEAR
+        else:
             resample_method = PILImage.Resampling.BILINEAR
 
-        # Координаты центра
+        # Центр кадра (не меняется)
         cx = width / 2.0
         cy = height / 2.0
 
         frames_list = []
         for i in range(total_frames):
-            # t: 0..1
+            # 3) t: 0..1
             if total_frames > 1:
                 t = i / (total_frames - 1)
             else:
                 t = 0.0
-
             t = apply_easing(t)
-            # zoom in: 1.0 -> 1.0+zoom_factor
-            scale = 1.0 + zoom_factor * t
 
-            # аффинные коэффициенты
-            a = scale
+            # 4) "zoom in" => масштаб растёт от 1.0 до 1.0+zoom_factor
+            final_scale = 1.0 + zoom_factor * t
+
+            # 5) В аффинном transform() мы задаём МАТРИЦУ, которая 
+            #    описывает, как искать пиксели исходника 
+            #    по координатам выходного изображения.
+            # 
+            #    Если хотим, чтобы результат "выглядел" зумом,
+            #    нужно в transform указать коэффициент: 1 / final_scale
+            #    То есть мы берём МЕНЬШУЮ часть оригинала, растягивая её на весь (width, height).
+            #
+            # Коэффициенты для x_in = a*x_out + b*y_out + c
+            #                      y_in = d*x_out + e*y_out + f
+            #
+            # При "zoom in" вокруг (cx, cy):
+            #   a = 1.0/final_scale
+            #   e = 1.0/final_scale
+            #   c = cx*(1 - 1/final_scale)
+            #   f = cy*(1 - 1/final_scale)
+            #
+            a = 1.0 / final_scale
             b = 0.0
-            c = (1.0 - scale) * cx
+            c = cx * (1.0 - a)  # cx - cx*a
             d = 0.0
-            e = scale
-            f = (1.0 - scale) * cy
+            e = 1.0 / final_scale
+            f = cy * (1.0 - e)  # cy - cy*e
 
             coeffs = (a, b, c, d, e, f)
 
-            # создаём кадр (width x height)
+            # 6) Применяем transform -> (width, height)
             transformed = pil_image.transform(
                 (width, height),
                 PILImage.AFFINE,
@@ -167,11 +187,11 @@ class GlamSmoothZoom:
                 resample=resample_method
             )
 
-            # переводим в float32 (0..1)
+            # 7) float32, 0..1
             frame_array = np.array(transformed, dtype=np.float32) / 255.0
             frames_list.append(frame_array)
 
-        # формируем батч (N, H, W, C)
+        # 8) Сформируем батч (N,H,W,C) -> torch
         frames_np = np.stack(frames_list, axis=0)
         frames_torch = torch.from_numpy(frames_np)
         return (frames_torch,)
