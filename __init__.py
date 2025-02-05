@@ -101,6 +101,9 @@ class GlamSmoothZoom:
     FUNCTION = "process"
     CATEGORY = "comfyui-glam-nodes"
 
+    #
+    # Функции сглаживания (easing)
+    #
     def ease_in_out(self, t):
         return t * t * (3 - 2 * t)
 
@@ -134,35 +137,46 @@ class GlamSmoothZoom:
 
         frames = []
         for i in range(total_frames):
+            # Считаем нормированное t
             t = i / max(total_frames - 1, 1)
+
+            # Применяем easing
             if easing == "ease_in_out":
                 t = self.ease_in_out(t)
             elif easing == "ease_out":
                 t = self.ease_out(t)
-            # linear — t не меняем
+            # иначе (linear) не меняем t
 
             current_scale = 1.0 + zoom_factor * t
-            new_w = int(width * current_scale)
-            new_h = int(height * current_scale)
+
+            # Используем round() вместо int() для более стабильного округления
+            new_w = round(width * current_scale)
+            new_h = round(height * current_scale)
+
+            # Масштабируем
             scaled = pil_image.resize((new_w, new_h), resample=resample_method)
 
-            # Обрезаем по центру
-            left = (new_w - width) // 2
-            top = (new_h - height) // 2
+            # Вычисляем координаты обрезки (обязательно однообразно округляем)
+            left_f = (new_w - width) / 2
+            top_f = (new_h - height) / 2
+
+            left = int(round(left_f))
+            top = int(round(top_f))
             right = left + width
             bottom = top + height
+
+            # Crop
             cropped = scaled.crop((left, top, right, bottom))
 
-            # Конвертируем в float32 (0..1)
+            # Переводим в float32 (0..1)
             frame_array = np.array(cropped, dtype=np.float32) / 255.0
             frames.append(frame_array)
 
         # Собираем кадры в единый NumPy-массив
         frames = np.stack(frames, axis=0)  # (total_frames, H, W, C)
 
-        # !!! Конвертируем в PyTorch-тензор, чтобы следующая нода могла .cpu()
-        frames_torch = torch.from_numpy(frames)  # shape (total_frames, H, W, C)
-
+        # Переводим в PyTorch-тензор, чтобы VideoCombine мог .cpu()
+        frames_torch = torch.from_numpy(frames)
         return (frames_torch,)
 
 
