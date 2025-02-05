@@ -85,11 +85,15 @@ class GlamSmoothZoom:
         pass
 
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
+        """
+        Принимаем ровно одно изображение (image)
+        и несколько управляющих параметров.
+        """
         return {
             "required": {
                 "image": ("IMAGE",),
-                "zoom_factor": ("FLOAT", {"default": 0.15, "min": 0.01, "max": 1.0, "step": 0.01}),
+                "zoom_factor": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "duration": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 60.0, "step": 0.1}),
                 "fps": ("INT", {"default": 30, "min": 1, "max": 240, "step": 1}),
                 "interpolation": (["LANCZOS", "BICUBIC", "BILINEAR"], {"default": "LANCZOS"}),
@@ -102,33 +106,27 @@ class GlamSmoothZoom:
     CATEGORY = "comfyui-glam-nodes"
 
     #
-    # Функции "сглаживания" (easing)
+    # Дополнительные easing-функции
     #
     def ease_in_out(self, t):
-        """
-        Простая ease-in-out функция (S-образная).
-        """
+        """Плавное ускорение-замедление (S-образная кривая)."""
         return t * t * (3 - 2 * t)
 
     def ease_out(self, t):
-        """
-        Более резкий старт и плавная остановка.
-        """
+        """Резкий старт и плавная остановка."""
         return 1 - (1 - t) ** 3
 
     def process(self, image, zoom_factor, duration, fps, interpolation, easing):
         """
-        Создает батч кадров (shape = [количество_кадров, H, W, C]),
-        имитируя плавный зум (по умолчанию 5 секунд, 30 fps, на 15%).
+        Создаёт батч кадров (shape = [количество_кадров, H, W, C]),
+        плавно увеличивая масштаб одного входного изображения.
         """
+        # Из ComfyUI батч обычно приходит как (batch, height, width, channels).
+        # Берём только первый кадр (если batch > 1).
+        frame_0 = image[0]  # shape: (height, width, channels)
+        frame_0 = (frame_0 * 255).astype(np.uint8)
+        pil_image = Image.fromarray(frame_0)
 
-        # В image передаётся тензор в формате (batch, height, width, channels).
-        # Возьмём первый кадр, если батч > 1
-        img_data = image[0]  # shape (height, width, channels)
-        img_data = (img_data * 255).astype(np.uint8)
-        pil_image = Image.fromarray(img_data)
-
-        # Параметры анимации
         width, height = pil_image.size
         total_frames = int(fps * duration)
 
@@ -140,41 +138,35 @@ class GlamSmoothZoom:
         }[interpolation]
 
         frames = []
-        for frame_idx in range(total_frames):
+        for i in range(total_frames):
             # Нормируем t от 0 до 1
-            t = frame_idx / max(total_frames - 1, 1)
+            t = i / max(total_frames - 1, 1)
 
-            # Применяем одну из easing-функций
+            # Применяем easing
             if easing == "ease_in_out":
                 t = self.ease_in_out(t)
             elif easing == "ease_out":
                 t = self.ease_out(t)
-            # если linear — просто оставляем t как есть
+            # если linear, оставляем t как есть
 
-            # Рассчитываем текущий масштаб
             current_scale = 1.0 + zoom_factor * t
-
-            # Масштабируем
             new_w = int(width * current_scale)
             new_h = int(height * current_scale)
-            scaled = pil_image.resize((new_w, new_h), resample=resample_method)
+            scaled_img = pil_image.resize((new_w, new_h), resample=resample_method)
 
-            # Обрезаем по центру до исходных width/height
-            left = (new_w - width) // 2
-            top = (new_h - height) // 2
+            # Обрезаем по центру до исходного размера
+            left = (scaled_img.width - width) // 2
+            top = (scaled_img.height - height) // 2
             right = left + width
             bottom = top + height
+            cropped = scaled_img.crop((left, top, right, bottom))
 
-            # Crop
-            cropped = scaled.crop((left, top, right, bottom))
-
-            # Сохраняем в общий список
-            frame_array = np.array(cropped).astype(np.float32) / 255.0  # (H, W, C)
+            # Конвертируем в float32 для ComfyUI
+            frame_array = np.array(cropped, dtype=np.float32) / 255.0
             frames.append(frame_array)
 
-        # Превращаем список в один numpy-стек
-        frames = np.stack(frames, axis=0)  # shape = (total_frames, H, W, C)
-        
+        # Собираем всё в один numpy-стек (batch)
+        frames = np.stack(frames, axis=0)  # (total_frames, H, W, C)
         return (frames,)
 
 
