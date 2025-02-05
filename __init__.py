@@ -1,8 +1,12 @@
 import random
 from PIL import Image
 import numpy
+import numpy as np
+import torch
 
-
+#
+# === Старая нода: GlamRandomImage ===
+#
 class GlamRandomImage:
     def __init__(self):
         self.input_types = None
@@ -73,65 +77,114 @@ class GlamRandomImage:
         return (choice,)
 
 
-# === Новая нода: GlamSmoothZoom ===
+#
+# === Новая продвинутая нода GlamSmoothZoom ===
+#
 class GlamSmoothZoom:
     def __init__(self):
         pass
 
     @classmethod
     def INPUT_TYPES(s):
-        # Указываем, что на вход требуется изображение
         return {
             "required": {
                 "image": ("IMAGE",),
+                "zoom_factor": ("FLOAT", {"default": 0.15, "min": 0.01, "max": 1.0, "step": 0.01}),
+                "duration": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 60.0, "step": 0.1}),
+                "fps": ("INT", {"default": 30, "min": 1, "max": 240, "step": 1}),
+                "interpolation": (["LANCZOS", "BICUBIC", "BILINEAR"], {"default": "LANCZOS"}),
+                "easing": (["linear", "ease_in_out", "ease_out"], {"default": "ease_in_out"}),
             }
         }
 
-    # Возвращаем батч (список) изображений
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
     CATEGORY = "comfyui-glam-nodes"
 
-    def process(self, image):
-        # Получаем первый кадр из батча изображений
-        image = image[0]
-        
-        # Конвертируем тензор в PIL Image для обработки
-        image = Image.fromarray((image * 255).astype('uint8'))
+    #
+    # Функции "сглаживания" (easing)
+    #
+    def ease_in_out(self, t):
+        """
+        Простая ease-in-out функция (S-образная).
+        """
+        return t * t * (3 - 2 * t)
 
-        width, height = image.size
-        fps = 30
-        duration = 5  # в секундах
-        total_frames = fps * duration  # 150 кадров
-        final_scale = 1.15  # итоговый масштаб (15% зум)
+    def ease_out(self, t):
+        """
+        Более резкий старт и плавная остановка.
+        """
+        return 1 - (1 - t) ** 3
+
+    def process(self, image, zoom_factor, duration, fps, interpolation, easing):
+        """
+        Создает батч кадров (shape = [количество_кадров, H, W, C]),
+        имитируя плавный зум (по умолчанию 5 секунд, 30 fps, на 15%).
+        """
+
+        # В image передаётся тензор в формате (batch, height, width, channels).
+        # Возьмём первый кадр, если батч > 1
+        img_data = image[0]  # shape (height, width, channels)
+        img_data = (img_data * 255).astype(np.uint8)
+        pil_image = Image.fromarray(img_data)
+
+        # Параметры анимации
+        width, height = pil_image.size
+        total_frames = int(fps * duration)
+
+        # Определяем метод ресемплинга
+        resample_method = {
+            "LANCZOS": Image.Resampling.LANCZOS,
+            "BICUBIC": Image.Resampling.BICUBIC,
+            "BILINEAR": Image.Resampling.BILINEAR
+        }[interpolation]
+
         frames = []
+        for frame_idx in range(total_frames):
+            # Нормируем t от 0 до 1
+            t = frame_idx / max(total_frames - 1, 1)
 
-        for frame in range(total_frames):
-            # Линейная интерполяция от 1.0 до 1.15
-            t = frame / (total_frames - 1)
-            scale = 1.0 + t * (final_scale - 1.0)
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            # Масштабируем изображение
-            scaled = image.resize((new_width, new_height), resample=Image.LANCZOS)
-            # Центрируем и обрезаем до исходного размера
-            left = (new_width - width) // 2
-            top = (new_height - height) // 2
+            # Применяем одну из easing-функций
+            if easing == "ease_in_out":
+                t = self.ease_in_out(t)
+            elif easing == "ease_out":
+                t = self.ease_out(t)
+            # если linear — просто оставляем t как есть
+
+            # Рассчитываем текущий масштаб
+            current_scale = 1.0 + zoom_factor * t
+
+            # Масштабируем
+            new_w = int(width * current_scale)
+            new_h = int(height * current_scale)
+            scaled = pil_image.resize((new_w, new_h), resample=resample_method)
+
+            # Обрезаем по центру до исходных width/height
+            left = (new_w - width) // 2
+            top = (new_h - height) // 2
             right = left + width
             bottom = top + height
-            frame_img = scaled.crop((left, top, right, bottom))
-            frames.append(frame_img)
-            
-        # Конвертируем обратно в формат ComfyUI
-        frames = [numpy.array(frame).astype(numpy.float32) / 255.0 for frame in frames]
-        frames = numpy.stack(frames)
+
+            # Crop
+            cropped = scaled.crop((left, top, right, bottom))
+
+            # Сохраняем в общий список
+            frame_array = np.array(cropped).astype(np.float32) / 255.0  # (H, W, C)
+            frames.append(frame_array)
+
+        # Превращаем список в один numpy-стек
+        frames = np.stack(frames, axis=0)  # shape = (total_frames, H, W, C)
         
         return (frames,)
 
 
-# === Обновление маппинга нод ===
+#
+# === Обновляем словарь маппинга нод ===
+#
 NODE_CLASS_MAPPINGS = {
     "GlamRandomImage": GlamRandomImage,
     "GlamSmoothZoom": GlamSmoothZoom,
 }
+
+# Папка для статических файлов (если используете web UI/JS/TS скрипты)
 WEB_DIRECTORY = "./js"

@@ -116,7 +116,6 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                 }
 
                 updateInputs.call(this)
-
                 this.removeCancel = -1
             }
 
@@ -137,7 +136,6 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                     this.widgets = this.tmpWidgets.concat(this.widgets)
                     delete this.tmpWidgets
                 }
-
                 if (app.configuringGraph) {
                     updateInputs.call(this)
                 }
@@ -152,6 +150,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                             continue
                         }
                         const extraname = getInputExtraname({ name: input })
+
                         const walkdown = (type: string, id: string, sum: number): number => {
                             for (const input of Object.keys(prompt[id].inputs)) {
                                 const value = prompt[id].inputs[input]
@@ -168,6 +167,7 @@ function createCallback(nodename: string, basename: string, inputType: string, w
                             }
                             return sum
                         }
+
                         const value = prompt[this.id].inputs[input]
                         if (Array.isArray(value)) {
                             let sum = walkdown(type, value[0], 0)
@@ -200,19 +200,14 @@ api.queuePrompt = (async function queuePrompt(number: number, { output, workflow
     return await queuePromptOriginal(number, { output, workflow })
 }).bind(api)
 
+/**
+ * Регистрируем только две ноды:
+ * 1) GlamRandomImage
+ * 2) GlamSmoothZoom
+ */
 app.registerExtension({
-    name: "Taremin.StringToolsConcat",
-    beforeRegisterNodeDef: createCallback("StringToolsConcat", "text", "STRING"),
-})
-
-app.registerExtension({
-    name: "Taremin.StringToolsRandomChoice",
-    beforeRegisterNodeDef: createCallback("StringToolsRandomChoice", "text", "STRING"),
-})
-
-app.registerExtension({
-    name: "Taremin.StringToolsBalancedChoice",
-    beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["StringToolsRandomChoice", "StringToolsBalancedChoice"]),
+    name: "Taremin.GlamRandomImage",
+    beforeRegisterNodeDef: createCallback("GlamRandomImage", "image", "IMAGE"),
 })
 
 app.registerExtension({

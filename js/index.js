@@ -1,22 +1,30 @@
 import { app } from "/scripts/app.js";
 import { api } from "/scripts/api.js";
 import { setWidgetConfig } from "/extensions/core/widgetInputs.js";
+
+// Фабричная функция для динамических сокетов
 function createCallback(nodename, basename, inputType, withWeights) {
     return async function (nodeType, nodeData, app) {
         if (nodeData.name !== nodename) {
             return;
         }
+
         const getInputBasename = function (input) {
             return input.name.split('_')[0];
         };
         const getInputExtraname = function (input) {
             return input.name.split('_', 2)[1];
         };
+
         const updateInputs = function () {
             // remove empty inputs
             for (let index = this.inputs.length; index--;) {
                 const input = this.inputs[index];
-                if (getInputBasename(input) === basename && input.link === null && this.removeCancel !== index) {
+                if (
+                    getInputBasename(input) === basename &&
+                    input.link === null &&
+                    this.removeCancel !== index
+                ) {
                     this.removeInput(index);
                     const widgetIndex = this.widgets.findIndex((value) => value.name === input.name);
                     if (widgetIndex != -1) {
@@ -24,6 +32,7 @@ function createCallback(nodename, basename, inputType, withWeights) {
                     }
                 }
             }
+
             // rename
             let j = 0;
             for (let i = 0, il = this.inputs.length; i < il; ++i) {
@@ -32,8 +41,10 @@ function createCallback(nodename, basename, inputType, withWeights) {
                     this.inputs[i].name = [basename, j++].join('_');
                 }
             }
+
             // create empty input
             this.addInput([basename, j].join('_'), inputType);
+
             if (!this.widgets) {
                 this.widgets = [];
             }
@@ -50,6 +61,7 @@ function createCallback(nodename, basename, inputType, withWeights) {
                 setWidgetConfig(input, [inputType, { forceInput: true }]);
             }
         };
+
         const onNodeCreatedOriginal = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             if (onNodeCreatedOriginal) {
@@ -59,15 +71,20 @@ function createCallback(nodename, basename, inputType, withWeights) {
                 app.configuringGraph = tmp;
             }
             this.removeCancel = -1;
+
             const onConnectInputOriginal = this.onConnectInput;
             this.onConnectInput = function (targetSlot, type, output, originNode, originSlot) {
                 let retVal = onConnectInputOriginal ? onConnectInputOriginal.apply(this, arguments) : void 0;
-                if (originNode.type === "PrimitiveNode" && getInputBasename(this.inputs[targetSlot]) === basename) {
+                if (
+                    originNode.type === "PrimitiveNode" &&
+                    getInputBasename(this.inputs[targetSlot]) === basename
+                ) {
                     return false;
                 }
                 this.removeCancel = targetSlot;
                 return retVal;
             };
+
             const onInputDblClickOriginal = this.onInputDblClick;
             this.onInputDblClick = function (slot) {
                 if (onInputDblClickOriginal) {
@@ -84,10 +101,15 @@ function createCallback(nodename, basename, inputType, withWeights) {
                     LiteGraph.createNode = originalCreateNode;
                 }
             };
+
             const onConnectionsChange = this.onConnectionsChange;
-            this.onConnectionsChange = function (type, //(0: ?, 1:input, 2: output )
-                slotIndex, isConnected, link, //LLink,
-                ioSlot) {
+            this.onConnectionsChange = function (
+                type, // (0: ?, 1:input, 2: output )
+                slotIndex,
+                isConnected,
+                link, // LLink
+                ioSlot
+            ) {
                 if (onConnectionsChange) {
                     onConnectionsChange.apply(this, arguments);
                 }
@@ -97,16 +119,17 @@ function createCallback(nodename, basename, inputType, withWeights) {
                 updateInputs.call(this);
                 this.removeCancel = -1;
             };
+
             this.onAdded = function (graph) {
                 this.tmpWidgets = this.widgets;
                 if (app.configuringGraph) {
                     this.widgets = [];
                     this.widgets_values = [];
-                }
-                else {
+                } else {
                     updateInputs.call(this);
                 }
             };
+
             // デフォルトの onGraphConfigured は動的なソケットを破壊するので使用しない
             const onGraphConfigured = this.onGraphConfigured;
             this.onGraphConfigured = function () {
@@ -118,6 +141,7 @@ function createCallback(nodename, basename, inputType, withWeights) {
                     updateInputs.call(this);
                 }
             };
+
             if (withWeights !== void 0) {
                 this.calcNodeInputs = function (prompt, workflow) {
                     const type = prompt[this.id].class_type;
@@ -130,8 +154,10 @@ function createCallback(nodename, basename, inputType, withWeights) {
                             for (const input of Object.keys(prompt[id].inputs)) {
                                 const value = prompt[id].inputs[input];
                                 let start = 0;
-                                if (withWeights.includes(prompt[id].class_type) &&
-                                    getInputBasename({ name: input }) === basename) {
+                                if (
+                                    withWeights.includes(prompt[id].class_type) &&
+                                    getInputBasename({ name: input }) === basename
+                                ) {
                                     start = 1;
                                 }
                                 if (Array.isArray(value)) {
@@ -152,6 +178,7 @@ function createCallback(nodename, basename, inputType, withWeights) {
                     }
                 };
             }
+
             // init inputs
             if (!this.inputs) {
                 this.inputs = [];
@@ -159,6 +186,8 @@ function createCallback(nodename, basename, inputType, withWeights) {
         };
     };
 }
+
+// Переопределение queuePrompt для динамических сокетов
 const queuePromptOriginal = api.queuePrompt;
 api.queuePrompt = (async function queuePrompt(number, { output, workflow }) {
     for (const id of Object.keys(output)) {
@@ -169,18 +198,17 @@ api.queuePrompt = (async function queuePrompt(number, { output, workflow }) {
     }
     return await queuePromptOriginal(number, { output, workflow });
 }).bind(api);
-app.registerExtension({
-    name: "Taremin.StringToolsConcat",
-    beforeRegisterNodeDef: createCallback("StringToolsConcat", "text", "STRING"),
-});
+
+/**
+ * Оставляем только две актуальные ноды:
+ *   1) GlamRandomImage
+ *   2) GlamSmoothZoom
+ */
 app.registerExtension({
     name: "Taremin.GlamRandomImage",
     beforeRegisterNodeDef: createCallback("GlamRandomImage", "image", "IMAGE"),
 });
-app.registerExtension({
-    name: "Taremin.StringToolsBalancedChoice",
-    beforeRegisterNodeDef: createCallback("StringToolsBalancedChoice", "text", "STRING", ["GlamRandomImage", "StringToolsBalancedChoice"]),
-});
+
 app.registerExtension({
     name: "Taremin.GlamSmoothZoom",
     beforeRegisterNodeDef: createCallback("GlamSmoothZoom", "image", "IMAGE"),
