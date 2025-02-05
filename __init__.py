@@ -241,4 +241,43 @@ class GlamSmoothZoomOut:
             t = i / (total_frames - 1) if total_frames > 1 else 0.0
             t = apply_easing(t)
 
-            # Zoom Out: scale(t=0) = 1 + zoom_factor,  scale(t=1)
+            # Zoom Out: scale(t=0) = 1 + zoom_factor,  scale(t=1) = 1.0
+            # => final_scale = (1.0 + zoom_factor) - zoom_factor*t
+            #    или 1.0 + zoom_factor*(1 - t)
+            final_scale = 1.0 + zoom_factor * (1.0 - t)
+
+            # Для transform:  a = 1/final_scale
+            # => "к концу" a становится = 1/1=1
+            a = 1.0 / final_scale
+            b = 0.0
+            c = cx * (1.0 - a)
+            d = 0.0
+            e = 1.0 / final_scale
+            f = cy * (1.0 - e)
+
+            coeffs = (a, b, c, d, e, f)
+            transformed = pil_image.transform(
+                (width, height),
+                PILImage.AFFINE,
+                coeffs,
+                resample=resample_method
+            )
+
+            frame_array = np.array(transformed, dtype=np.float32) / 255.0
+            frames_list.append(frame_array)
+
+        frames_np = np.stack(frames_list, axis=0)
+        frames_torch = torch.from_numpy(frames_np)
+        return (frames_torch,)
+
+
+#
+# === Обновляем словарь нод ===
+#
+NODE_CLASS_MAPPINGS = {
+    "GlamRandomImage": GlamRandomImage,
+    "GlamSmoothZoom": GlamSmoothZoom,
+    "GlamSmoothZoomOut": GlamSmoothZoomOut,
+}
+
+WEB_DIRECTORY = "./js"
