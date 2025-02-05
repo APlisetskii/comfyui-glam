@@ -76,7 +76,7 @@ class GlamRandomImage:
         return (choice,)
 
 #
-# === Новая продвинутая нода GlamSmoothZoom с зафиксированным центром ===
+# === Новая версия GlamSmoothZoom с "Image.transform" (AFFINE) ===
 #
 class GlamSmoothZoom:
     def __init__(self):
@@ -99,9 +99,7 @@ class GlamSmoothZoom:
     FUNCTION = "process"
     CATEGORY = "comfyui-glam-nodes"
 
-    #
-    # Функции сглаживания (easing)
-    #
+    # easing-функции
     def ease_in_out(self, t):
         return t * t * (3 - 2 * t)
 
@@ -110,89 +108,86 @@ class GlamSmoothZoom:
 
     def process(self, image, zoom_factor, duration, fps, interpolation, easing):
         """
-        Создаёт батч кадров (shape = [количество_кадров, H, W, C]),
-        плавно увеличивая масштаб одного входного изображения,
-        и возвращает PyTorch-тензор, чтобы другие ноды могли делать .cpu().
-        Стабилизировано вокруг центральной точки (width/2, height/2).
+        Анимационный зум вокруг центра:
+        - Генерируем N кадров (N=fps*duration),
+        - Каждый кадр делается через аффинное преобразование (subpixel),
+          что убирает дергания от неоднородного int/round при crop+resize.
+        - Возвращаем PyTorch-тензор (N,H,W,C).
         """
-        # Если image — это PyTorch-тензор, переводим в NumPy
+
+        # 1) Преобразуем вход (PyTorch -> NumPy)
         if isinstance(image, torch.Tensor):
-            frame_0 = image[0].detach().cpu().numpy()  # (height, width, channels)
+            frame_0 = image[0].detach().cpu().numpy()  # (H, W, C)
         else:
             frame_0 = image[0]
 
-        # Приводим в uint8 для PIL
         frame_0 = (frame_0 * 255).astype(np.uint8)
         pil_image = Image.fromarray(frame_0)
 
         width, height = pil_image.size
         total_frames = int(fps * duration)
 
-        # Центр исходного изображения
-        center_x = width / 2.0
-        center_y = height / 2.0
+        # 2) Easing-мэппинг
+        def apply_easing(raw_t):
+            if easing == "ease_in_out":
+                return self.ease_in_out(raw_t)
+            elif easing == "ease_out":
+                return self.ease_out(raw_t)
+            return raw_t  # linear
 
-        # Выбираем метод ресемплинга
+        # 3) Выбираем метод ресемплинга
         from PIL import Image as PILImage
         resample_method = {
-            "LANCZOS": PILImage.Resampling.LANCZOS,
-            "BICUBIC": PILImage.Resampling.BICUBIC,
+            "LANCZOS":  PILImage.Resampling.LANCZOS,
+            "BICUBIC":  PILImage.Resampling.BICUBIC,
             "BILINEAR": PILImage.Resampling.BILINEAR
         }[interpolation]
 
-        frames = []
+        # Центр (around which we scale)
+        cx = width  / 2.0
+        cy = height / 2.0
+
+        frames_list = []
         for i in range(total_frames):
-            # Нормированное t
-            t = i / max(total_frames - 1, 1)
-            # Easing
-            if easing == "ease_in_out":
-                t = self.ease_in_out(t)
-            elif easing == "ease_out":
-                t = self.ease_out(t)
+            # 4) t от 0 до 1
+            if total_frames > 1:
+                t = i / (total_frames - 1)
+            else:
+                t = 0.0
 
-            current_scale = 1.0 + zoom_factor * t
+            t = apply_easing(t)
+            scale = 1.0 + zoom_factor * t
 
-            # Новые размеры (округляем, чтобы не было дрожания)
-            new_w = round(width * current_scale)
-            new_h = round(height * current_scale)
+            # 5) Формируем аффинное преобразование:
+            #   x_in = scale * x_out + (1 - scale)*cx
+            #   y_in = scale * y_out + (1 - scale)*cy
+            # => coefficients (a, b, c, d, e, f)
+            #    x_in = a*x_out + b*y_out + c
+            #    y_in = d*x_out + e*y_out + f
+            a = scale
+            b = 0.0
+            c = (1.0 - scale) * cx
+            d = 0.0
+            e = scale
+            f = (1.0 - scale) * cy
 
-            scaled = pil_image.resize((new_w, new_h), resample=resample_method)
+            # 6) Применяем transform (выводим в исходный размер (width x height))
+            coeffs = (a, b, c, d, e, f)
+            transformed = pil_image.transform(
+                (width, height),    # output size
+                PILImage.AFFINE,    # mode
+                coeffs,             # transform coefficients
+                resample=resample_method
+            )
 
-            #
-            # Считаем так, чтобы "центр" картинки оставался на месте
-            #
-            # Изначально центр был (center_x, center_y).
-            # При масштабировании он теперь (center_x * current_scale, center_y * current_scale).
-            #
-            # Мы хотим, чтобы это было "серединой" обрезанного куска шириной width и высотой height.
-            #
-            # Значит левый верхний угол:
-            # left_f = center_scale_x - width/2
-            # top_f  = center_scale_y - height/2
-            #
-            center_scale_x = center_x * current_scale
-            center_scale_y = center_y * current_scale
+            # 7) float32, 0..1
+            frame_array = np.array(transformed, dtype=np.float32) / 255.0
+            frames_list.append(frame_array)
 
-            left_f = center_scale_x - (width / 2)
-            top_f  = center_scale_y - (height / 2)
+        # 8) Собираем в (N, H, W, C), затем -> Torch
+        frames_np = np.stack(frames_list, axis=0)
+        frames_torch = torch.from_numpy(frames_np)
 
-            # Округляем, чтобы не дергалось
-            left = int(round(left_f))
-            top  = int(round(top_f))
-
-            # Координаты правого нижнего угла
-            right  = left + width
-            bottom = top + height
-
-            cropped = scaled.crop((left, top, right, bottom))
-
-            # Переводим в float32 0..1
-            frame_array = np.array(cropped, dtype=np.float32) / 255.0
-            frames.append(frame_array)
-
-        # Собираем все кадры
-        frames = np.stack(frames, axis=0)
-        frames_torch = torch.from_numpy(frames)
         return (frames_torch,)
 
 
