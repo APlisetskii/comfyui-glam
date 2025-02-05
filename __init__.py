@@ -86,10 +86,6 @@ class GlamSmoothZoom:
 
     @classmethod
     def INPUT_TYPES(cls):
-        """
-        Принимаем ровно одно изображение (image)
-        и несколько управляющих параметров.
-        """
         return {
             "required": {
                 "image": ("IMAGE",),
@@ -105,15 +101,10 @@ class GlamSmoothZoom:
     FUNCTION = "process"
     CATEGORY = "comfyui-glam-nodes"
 
-    #
-    # Дополнительные easing-функции
-    #
     def ease_in_out(self, t):
-        """Плавное ускорение-замедление (S-образная кривая)."""
         return t * t * (3 - 2 * t)
 
     def ease_out(self, t):
-        """Резкий старт и плавная остановка."""
         return 1 - (1 - t) ** 3
 
     def process(self, image, zoom_factor, duration, fps, interpolation, easing):
@@ -121,16 +112,24 @@ class GlamSmoothZoom:
         Создаёт батч кадров (shape = [количество_кадров, H, W, C]),
         плавно увеличивая масштаб одного входного изображения.
         """
-        # Из ComfyUI батч обычно приходит как (batch, height, width, channels).
-        # Берём только первый кадр (если batch > 1).
-        frame_0 = image[0]  # shape: (height, width, channels)
+
+        # Обычно ComfyUI подаёт сюда PyTorch-тензор:
+        # image.shape = (batch, height, width, channels), float32
+        # Преобразуем в NumPy, uint8
+        if isinstance(image, torch.Tensor):
+            frame_0 = image[0].detach().cpu().numpy()  # (height, width, channels)
+        else:
+            # Если вдруг это уже NumPy-массив, просто берём image[0]
+            frame_0 = image[0]
+
+        # Приводим к uint8 (0..255), чтобы отдать PIL
         frame_0 = (frame_0 * 255).astype(np.uint8)
         pil_image = Image.fromarray(frame_0)
 
         width, height = pil_image.size
         total_frames = int(fps * duration)
 
-        # Определяем метод ресемплинга
+        # Маппинг строкового параметра interpolation -> метод ресемплинга PIL
         resample_method = {
             "LANCZOS": Image.Resampling.LANCZOS,
             "BICUBIC": Image.Resampling.BICUBIC,
@@ -139,15 +138,12 @@ class GlamSmoothZoom:
 
         frames = []
         for i in range(total_frames):
-            # Нормируем t от 0 до 1
             t = i / max(total_frames - 1, 1)
-
-            # Применяем easing
             if easing == "ease_in_out":
                 t = self.ease_in_out(t)
             elif easing == "ease_out":
                 t = self.ease_out(t)
-            # если linear, оставляем t как есть
+            # linear — оставляем t без изменений
 
             current_scale = 1.0 + zoom_factor * t
             new_w = int(width * current_scale)
@@ -155,17 +151,16 @@ class GlamSmoothZoom:
             scaled_img = pil_image.resize((new_w, new_h), resample=resample_method)
 
             # Обрезаем по центру до исходного размера
-            left = (scaled_img.width - width) // 2
-            top = (scaled_img.height - height) // 2
+            left = (new_w - width) // 2
+            top = (new_h - height) // 2
             right = left + width
             bottom = top + height
             cropped = scaled_img.crop((left, top, right, bottom))
 
-            # Конвертируем в float32 для ComfyUI
+            # Конвертируем в float32 для ComfyUI (0..1)
             frame_array = np.array(cropped, dtype=np.float32) / 255.0
             frames.append(frame_array)
 
-        # Собираем всё в один numpy-стек (batch)
         frames = np.stack(frames, axis=0)  # (total_frames, H, W, C)
         return (frames,)
 
