@@ -81,7 +81,7 @@ class GlamSmoothZoom:
         zoom_factor: на сколько увеличить (напр. 0.15 = +15%)
         duration:    длительность анимации (сек)
         fps:         кадров в секунду
-        interpolation: ["BICUBIC","BILINEAR"] (исключили LANCZOS)
+        interpolation: ["BICUBIC","BILINEAR"] (убрали LANCZOS)
         easing:      тип плавности
         """
         return {
@@ -107,11 +107,9 @@ class GlamSmoothZoom:
 
     def process(self, image, zoom_factor, duration, fps, interpolation, easing):
         """
-        "Zoom In" (увеличение) без чёрных рамок:
-        Мы используем обратную матрицу масштабирования, чтобы 
-        PIL не пытался брать пиксели за пределами исходного изображения.
+        "Zoom In" (увеличение) без чёрных рамок.
+        Масштаб растёт от 1.0 до 1.0+zoom_factor.
         """
-
         # 1) PyTorch->NumPy
         if isinstance(image, torch.Tensor):
             frame_0 = image[0].detach().cpu().numpy()
@@ -130,56 +128,32 @@ class GlamSmoothZoom:
                 return self.ease_out(raw_t)
             return raw_t  # linear
 
-        # 2) Выбираем метод (без LANCZOS)
         from PIL import Image as PILImage
         if interpolation == "BICUBIC":
             resample_method = PILImage.Resampling.BICUBIC
         else:
             resample_method = PILImage.Resampling.BILINEAR
 
-        # Центр кадра (не меняется)
         cx = width / 2.0
         cy = height / 2.0
 
         frames_list = []
         for i in range(total_frames):
-            # 3) t: 0..1
-            if total_frames > 1:
-                t = i / (total_frames - 1)
-            else:
-                t = 0.0
+            t = i / (total_frames - 1) if total_frames > 1 else 0.0
             t = apply_easing(t)
 
-            # 4) "zoom in" => масштаб растёт от 1.0 до 1.0+zoom_factor
+            # Zoom In: scale = 1..(1+zoom_factor)
             final_scale = 1.0 + zoom_factor * t
 
-            # 5) В аффинном transform() мы задаём МАТРИЦУ, которая 
-            #    описывает, как искать пиксели исходника 
-            #    по координатам выходного изображения.
-            # 
-            #    Если хотим, чтобы результат "выглядел" зумом,
-            #    нужно в transform указать коэффициент: 1 / final_scale
-            #    То есть мы берём МЕНЬШУЮ часть оригинала, растягивая её на весь (width, height).
-            #
-            # Коэффициенты для x_in = a*x_out + b*y_out + c
-            #                      y_in = d*x_out + e*y_out + f
-            #
-            # При "zoom in" вокруг (cx, cy):
-            #   a = 1.0/final_scale
-            #   e = 1.0/final_scale
-            #   c = cx*(1 - 1/final_scale)
-            #   f = cy*(1 - 1/final_scale)
-            #
+            # В transform() указываем 1/final_scale, чтобы обрезать края
             a = 1.0 / final_scale
             b = 0.0
-            c = cx * (1.0 - a)  # cx - cx*a
+            c = cx * (1.0 - a)
             d = 0.0
             e = 1.0 / final_scale
-            f = cy * (1.0 - e)  # cy - cy*e
+            f = cy * (1.0 - e)
 
             coeffs = (a, b, c, d, e, f)
-
-            # 6) Применяем transform -> (width, height)
             transformed = pil_image.transform(
                 (width, height),
                 PILImage.AFFINE,
@@ -187,19 +161,84 @@ class GlamSmoothZoom:
                 resample=resample_method
             )
 
-            # 7) float32, 0..1
             frame_array = np.array(transformed, dtype=np.float32) / 255.0
             frames_list.append(frame_array)
 
-        # 8) Сформируем батч (N,H,W,C) -> torch
         frames_np = np.stack(frames_list, axis=0)
         frames_torch = torch.from_numpy(frames_np)
         return (frames_torch,)
 
 
-NODE_CLASS_MAPPINGS = {
-    "GlamRandomImage": GlamRandomImage,
-    "GlamSmoothZoom": GlamSmoothZoom,
-}
+#
+# === Новая нода: GlamSmoothZoomOut (Zoom Out) ===
+#
+class GlamSmoothZoomOut:
+    def __init__(self):
+        pass
 
-WEB_DIRECTORY = "./js"
+    @classmethod
+    def INPUT_TYPES(cls):
+        """
+        По умолчанию 5с, 30 fps, zoom_factor говорит,
+        насколько изначально изображение больше, чем 1.0.
+        """
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "zoom_factor": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "duration": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 60.0, "step": 0.1}),
+                "fps": ("INT", {"default": 30, "min": 1, "max": 240, "step": 1}),
+                "interpolation": (["BICUBIC", "BILINEAR"], {"default": "BICUBIC"}),
+                "easing": (["linear", "ease_in_out", "ease_out"], {"default": "ease_in_out"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "process"
+    CATEGORY = "comfyui-glam-nodes"
+
+    def ease_in_out(self, t):
+        return t * t * (3 - 2 * t)
+
+    def ease_out(self, t):
+        return 1 - (1 - t) ** 3
+
+    def process(self, image, zoom_factor, duration, fps, interpolation, easing):
+        """
+        "Zoom Out": в начале масштаб (1.0 + zoom_factor), а к концу 1.0.
+        Также без чёрных рамок, анимируем через матрицу aффинного transform.
+        """
+        # Подготовка
+        if isinstance(image, torch.Tensor):
+            frame_0 = image[0].detach().cpu().numpy()
+        else:
+            frame_0 = image[0]
+        frame_0 = (frame_0 * 255).astype(np.uint8)
+        pil_image = Image.fromarray(frame_0)
+
+        width, height = pil_image.size
+        total_frames = int(fps * duration)
+
+        def apply_easing(raw_t):
+            if easing == "ease_in_out":
+                return self.ease_in_out(raw_t)
+            elif easing == "ease_out":
+                return self.ease_out(raw_t)
+            return raw_t  # linear
+
+        from PIL import Image as PILImage
+        if interpolation == "BICUBIC":
+            resample_method = PILImage.Resampling.BICUBIC
+        else:
+            resample_method = PILImage.Resampling.BILINEAR
+
+        # Центр
+        cx = width / 2.0
+        cy = height / 2.0
+
+        frames_list = []
+        for i in range(total_frames):
+            t = i / (total_frames - 1) if total_frames > 1 else 0.0
+            t = apply_easing(t)
+
+            # Zoom Out: scale(t=0) = 1 + zoom_factor,  scale(t=1)
