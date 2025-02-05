@@ -1,6 +1,5 @@
 import random
 from PIL import Image
-import numpy
 import numpy as np
 import torch
 
@@ -76,9 +75,8 @@ class GlamRandomImage:
         
         return (choice,)
 
-
 #
-# === Новая продвинутая нода GlamSmoothZoom ===
+# === Новая продвинутая нода GlamSmoothZoom с зафиксированным центром ===
 #
 class GlamSmoothZoom:
     def __init__(self):
@@ -115,6 +113,7 @@ class GlamSmoothZoom:
         Создаёт батч кадров (shape = [количество_кадров, H, W, C]),
         плавно увеличивая масштаб одного входного изображения,
         и возвращает PyTorch-тензор, чтобы другие ноды могли делать .cpu().
+        Стабилизировано вокруг центральной точки (width/2, height/2).
         """
         # Если image — это PyTorch-тензор, переводим в NumPy
         if isinstance(image, torch.Tensor):
@@ -122,60 +121,77 @@ class GlamSmoothZoom:
         else:
             frame_0 = image[0]
 
+        # Приводим в uint8 для PIL
         frame_0 = (frame_0 * 255).astype(np.uint8)
         pil_image = Image.fromarray(frame_0)
 
         width, height = pil_image.size
         total_frames = int(fps * duration)
 
+        # Центр исходного изображения
+        center_x = width / 2.0
+        center_y = height / 2.0
+
         # Выбираем метод ресемплинга
+        from PIL import Image as PILImage
         resample_method = {
-            "LANCZOS": Image.Resampling.LANCZOS,
-            "BICUBIC": Image.Resampling.BICUBIC,
-            "BILINEAR": Image.Resampling.BILINEAR
+            "LANCZOS": PILImage.Resampling.LANCZOS,
+            "BICUBIC": PILImage.Resampling.BICUBIC,
+            "BILINEAR": PILImage.Resampling.BILINEAR
         }[interpolation]
 
         frames = []
         for i in range(total_frames):
-            # Считаем нормированное t
+            # Нормированное t
             t = i / max(total_frames - 1, 1)
-
-            # Применяем easing
+            # Easing
             if easing == "ease_in_out":
                 t = self.ease_in_out(t)
             elif easing == "ease_out":
                 t = self.ease_out(t)
-            # иначе (linear) не меняем t
 
             current_scale = 1.0 + zoom_factor * t
 
-            # Используем round() вместо int() для более стабильного округления
+            # Новые размеры (округляем, чтобы не было дрожания)
             new_w = round(width * current_scale)
             new_h = round(height * current_scale)
 
-            # Масштабируем
             scaled = pil_image.resize((new_w, new_h), resample=resample_method)
 
-            # Вычисляем координаты обрезки (обязательно однообразно округляем)
-            left_f = (new_w - width) / 2
-            top_f = (new_h - height) / 2
+            #
+            # Считаем так, чтобы "центр" картинки оставался на месте
+            #
+            # Изначально центр был (center_x, center_y).
+            # При масштабировании он теперь (center_x * current_scale, center_y * current_scale).
+            #
+            # Мы хотим, чтобы это было "серединой" обрезанного куска шириной width и высотой height.
+            #
+            # Значит левый верхний угол:
+            # left_f = center_scale_x - width/2
+            # top_f  = center_scale_y - height/2
+            #
+            center_scale_x = center_x * current_scale
+            center_scale_y = center_y * current_scale
 
+            left_f = center_scale_x - (width / 2)
+            top_f  = center_scale_y - (height / 2)
+
+            # Округляем, чтобы не дергалось
             left = int(round(left_f))
-            top = int(round(top_f))
-            right = left + width
+            top  = int(round(top_f))
+
+            # Координаты правого нижнего угла
+            right  = left + width
             bottom = top + height
 
-            # Crop
             cropped = scaled.crop((left, top, right, bottom))
 
-            # Переводим в float32 (0..1)
+            # Переводим в float32 0..1
             frame_array = np.array(cropped, dtype=np.float32) / 255.0
             frames.append(frame_array)
 
-        # Собираем кадры в единый NumPy-массив
-        frames = np.stack(frames, axis=0)  # (total_frames, H, W, C)
-
-        # Переводим в PyTorch-тензор, чтобы VideoCombine мог .cpu()
+        # Собираем все кадры
+        frames = np.stack(frames, axis=0)
         frames_torch = torch.from_numpy(frames)
         return (frames_torch,)
 
