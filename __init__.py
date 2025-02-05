@@ -1,5 +1,6 @@
 import random
 from PIL import Image
+import numpy
 
 
 class GlamRandomImage:
@@ -92,8 +93,11 @@ class GlamSmoothZoom:
     CATEGORY = "comfyui-glam-nodes"
 
     def process(self, image):
-        if image is None:
-            raise ValueError("Input image is required.")
+        # Получаем первый кадр из батча изображений
+        image = image[0]
+        
+        # Конвертируем тензор в PIL Image для обработки
+        image = Image.fromarray((image * 255).astype('uint8'))
 
         width, height = image.size
         fps = 30
@@ -117,6 +121,11 @@ class GlamSmoothZoom:
             bottom = top + height
             frame_img = scaled.crop((left, top, right, bottom))
             frames.append(frame_img)
+            
+        # Конвертируем обратно в формат ComfyUI
+        frames = [numpy.array(frame).astype(numpy.float32) / 255.0 for frame in frames]
+        frames = numpy.stack(frames)
+        
         return (frames,)
 
 
